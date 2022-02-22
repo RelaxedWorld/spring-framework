@@ -179,18 +179,40 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 	@Nullable
 	protected Object getSingleton(String beanName, boolean allowEarlyReference) {
 		// Quick check for existing instance without full singleton lock
+		/**
+		 * singletonObjects也叫一级缓存（即我们常说的spring容器），存放已经初始完成的单例bean。
+		 */
 		Object singletonObject = this.singletonObjects.get(beanName);
 		if (singletonObject == null && isSingletonCurrentlyInCreation(beanName)) {
+			/**
+			 * 如果一级缓存没有且beanName正在创建中，则去二级缓存earlySingletonObjects去拿
+			 * 二级缓存存放是早期未完成属性注入的bean，即我们所说的半成品bean
+			 */
 			singletonObject = this.earlySingletonObjects.get(beanName);
 			if (singletonObject == null && allowEarlyReference) {
 				synchronized (this.singletonObjects) {
 					// Consistent creation of early reference within full singleton lock
+					/**
+					 * double check
+					 */
 					singletonObject = this.singletonObjects.get(beanName);
 					if (singletonObject == null) {
 						singletonObject = this.earlySingletonObjects.get(beanName);
 						if (singletonObject == null) {
+							/**
+							 * 二级缓存也没有就去三级缓存singletonFactories，三级缓存存放的是bean的实例工厂
+							 * 为什么不直接放入创建bean放入二级缓存，而放入工厂呢？
+							 * 读到后面我们会知道bean是在完成属性注入以后才通过后置处理器完成AOP代理的，所以这里创建的bean是targetBean而不是proxyBean，如果直接放入二级缓存就没办法注入
+							 * proxyBean了。所以这里放入的是一个bean工厂，好处就是在创建bean时可以按照我们的需求去扩展。
+							 * singletonFactories是在DefaultSingletonBeanRegistry#addSingletonFactory添加的，
+							 */
 							ObjectFactory<?> singletonFactory = this.singletonFactories.get(beanName);
 							if (singletonFactory != null) {
+								/**
+								 * earlySingletonObjects放入的是一个lambda表达式AbstractAutowireCapableBeanFactory#getEarlyBeanReference
+								 * getEarlyBeanReference的作用是调用bean的BeanPostProcessor（后置处理器），当调用AnnotationAwareAspectJAutoProxyCreator#getEarlyBeanReference
+								 * 时，会去创建代理对象，然后将proxyBean放入二级缓存，放入二级缓存的目的也是为了避免后面再获取时每次通过工厂创建，提高效率
+								 */
 								singletonObject = singletonFactory.getObject();
 								this.earlySingletonObjects.put(beanName, singletonObject);
 								this.singletonFactories.remove(beanName);
@@ -257,6 +279,9 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 					afterSingletonCreation(beanName);
 				}
 				if (newSingleton) {
+					/**
+					 * bean创建完之后放入sping容器（一级缓存singletonObjects），同时从二三级缓存移除
+					 */
 					addSingleton(beanName, singletonObject);
 				}
 			}
